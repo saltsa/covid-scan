@@ -58,7 +58,7 @@ func (apm adsPerMinute) Print() {
 	min := time.Now().Minute()
 
 	log.Infof("Ads per minute")
-	for i := (min + 40) % 60; i <= (min+60)%60; i++ {
+	for i := (min + 60 - 20); i <= (min + 60); i++ {
 		// log.Debugf("i is %d", i)
 		idx := i % 60
 		val := adsSlice[idx]
