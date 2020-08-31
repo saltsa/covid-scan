@@ -137,7 +137,7 @@ func hand(a ble.Advertisement) {
 			measureCount++
 			ds := fmt.Sprintf("%X", svc.Data)
 			as := fmt.Sprintf("%X", addr)
-			dout := fmt.Sprintf("%d,%s,%s,%d\n", time.Now().Unix(), as, ds, a.RSSI())
+			dout := fmt.Sprintf("%d,%s,%s,%d", time.Now().Unix(), as, ds, a.RSSI())
 			toFile(dout)
 			adsSlice.AddBeacon(ds, a.RSSI(), as)
 		}
