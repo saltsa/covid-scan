@@ -16,6 +16,8 @@ var measureCount uint64
 
 var esService ble.UUID = ble.UUID16(0xfd6f)
 
+// TODO: Fix this beaconinfo and names here
+// and functions
 type beaconInfo struct {
 	RSSI  int
 	Addr  string
@@ -61,7 +63,7 @@ func (apm adsPerMinute) Print() {
 		idx := i % 60
 		val := adsSlice[idx]
 
-		var rssiMin = -100
+		var rssiMin = -110
 		var rssiMax = -10
 		// for _, adv := range val {
 		// 	if adv.RSSI < rssiMin {
