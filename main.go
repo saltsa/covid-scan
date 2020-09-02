@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/go-ble/ble"
+	"github.com/JuulLabs-OSS/ble"
 	log "github.com/sirupsen/logrus"
 )
 
