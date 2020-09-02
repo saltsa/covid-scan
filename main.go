@@ -21,13 +21,13 @@ const maxRSSI = -20
 var oldEntry = 15 * time.Second
 
 // Removes entry if no beacon
-var cleanEntry = 1 * time.Minute
+var cleanEntry = 2 * time.Minute
 
 // flags L in output stats
 var longlivedEntry = 5 * time.Minute
 
 var statsChan chan struct{}
-var statsTicker = time.NewTicker(30 * time.Second)
+var statsTicker = time.NewTicker(10 * time.Second)
 var total uint64
 var adCount uint64
 var esService ble.UUID = ble.UUID16(0xfd6f)
@@ -48,6 +48,14 @@ func rssiToRune(rssi int) rune {
 	// levelUp := (maxRSSI - rssi)
 	// level := int(float64(levelDown) / float64(levelDown+levelUp) * 0.8)
 	return rune(0x2581 + level)
+}
+
+// Abs returns the absolute value of x.
+func Abs(x int) int {
+	if x < 0 {
+		return -x
+	}
+	return x
 }
 
 func (e *enEntry) String() string {
@@ -84,7 +92,44 @@ func (e *enEntry) String() string {
 		}
 	}
 
-	return fmt.Sprintf("%s%s rssi=[%s] last=%s age=%s first=%s count=%d rssi avg=%f latest=%d", tooOld, longLived, string(rssiS), last, first, age, e.Count, avg, e.RSSI[len(e.RSSI)-1])
+	return fmt.Sprintf("%s%s rssi=[%s] last=%s age=%s first=%s count=%d RSSI avg=%f latest=%d (%s)", tooOld, longLived, string(rssiS), last, first, age, e.Count, avg, e.RSSI[len(e.RSSI)-1], e.Data)
+}
+
+func (e *enEntry) CandidatePrevious() (bool, string) {
+	step := time.Since(e.FirstSeen)
+	const beaconCount = 20
+	if step > 10*time.Second && step < 60*time.Second {
+		if e.Count > beaconCount {
+			return false, ""
+		}
+		// TODO: Concurrency problem
+		var candi string
+		mutex.RLock()
+		for _, ee := range srcMap {
+			if ee.Data == e.Data {
+				continue
+			}
+			if Abs(ee.RSSI[len(ee.RSSI)-1]-e.RSSI[len(e.RSSI)-1]) > 15 {
+				continue
+			}
+			// Beacons are sent about once per second, make sure we haven't seen them too much
+
+			if ee.Count < beaconCount {
+				continue
+			}
+			if e.FirstSeen.After(ee.LastSeen) {
+				candi = ee.Data
+				break
+			}
+		}
+		mutex.RUnlock()
+
+		if candi != "" {
+			return true, candi
+		}
+	}
+
+	return false, ""
 }
 
 func (e *enEntry) Expired() bool {
@@ -96,7 +141,7 @@ func (e *enEntry) Expired() bool {
 
 var dataMap map[string]int
 var srcMap map[string]*enEntry
-var mutex sync.Mutex
+var mutex sync.RWMutex
 
 func init() {
 	dataMap = make(map[string]int)
@@ -106,7 +151,6 @@ func init() {
 }
 
 func Add(srcs string, data []byte, rssi int) {
-	mutex.Lock()
 	var found bool
 	var new bool
 
@@ -115,6 +159,10 @@ func Add(srcs string, data []byte, rssi int) {
 	// }
 	// log.Println("RSSI:", rssi)
 	datas := fmt.Sprintf("%x", data)
+	if len(datas) != 40 {
+		log.Println("invalid data length")
+		return
+	}
 	_, found = dataMap[datas]
 	if !found {
 		dataMap[datas] = 1
@@ -123,26 +171,32 @@ func Add(srcs string, data []byte, rssi int) {
 		dataMap[datas]++
 	}
 
+	mutex.RLock()
 	ent, found := srcMap[srcs]
+	mutex.RUnlock()
 	if !found {
 		ent = &enEntry{
 			FirstSeen: time.Now(),
 			RSSI:      make([]int, 0),
 			Data:      datas,
 		}
-		srcMap[srcs] = ent
 		new = true
+
+		mutex.Lock()
+		srcMap[srcs] = ent
+		mutex.Unlock()
+
 	} else {
 		if ent.Data != datas {
 			log.Printf("data differs in saved entity: %s vs. %s", ent.Data, datas)
 		}
 	}
 
+	mutex.Lock()
 	ent.Count++
 	ent.LastSeen = time.Now()
 	ent.RSSI = append(ent.RSSI, rssi)
 	total++
-
 	mutex.Unlock()
 
 	if new {
@@ -152,14 +206,21 @@ func Add(srcs string, data []byte, rssi int) {
 	}
 }
 
+func Delete(key string) {
+	mutex.Lock()
+	delete(srcMap, key)
+	mutex.Unlock()
+}
+
 func stats() {
 	for {
-		mutex.Lock()
 
 		var keys []string
+		mutex.RLock()
 		for key := range srcMap {
 			keys = append(keys, key)
 		}
+		mutex.RUnlock()
 
 		sort.Slice(keys, func(i, j int) bool {
 			ar := srcMap[keys[i]].RSSI
@@ -167,21 +228,26 @@ func stats() {
 
 			a := ar[len(ar)-1]
 			b := br[len(br)-1]
-			return a < b
+			return a > b
 		})
 
 		fmt.Printf("List of found beacons at %s\n", time.Now().Format("15:04:05"))
 		for _, key := range keys {
+			mutex.RLock()
 			data := srcMap[key]
+			mutex.RUnlock()
 			fmt.Printf("%s\n", data)
+			ok, candi := data.CandidatePrevious()
+
+			if ok {
+				fmt.Printf("Possibly change in data from %s to %s\n", candi, data.Data)
+			}
 			if data.Expired() {
-				delete(srcMap, key)
+				Delete(key)
 			}
 		}
 		fmt.Println("end of list")
 		fmt.Println()
-
-		mutex.Unlock()
 
 		select {
 		case <-statsChan:
