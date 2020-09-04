@@ -1,11 +1,14 @@
 # Covid BLE scanner written in Go
 
-Compile:
+## Compile
 
 ```sh
 ./build.sh
 ```
 
-This should compile correctly in macOS and it has been tested on Raspberry Pi 3 Model B+. Run as root to have access to bluetooth device.
+This should compile correctly in macOS (with Go 1.15). Build outputs two binary files:
+`covid-linux` and `covid-mac`, the first one meant to be run with Raspberry Pi 3 Model B+.
+Second one should run on macOS (tested with Big Sur and Catalina). Root privileges might be
+needed.
 
-Currently the application writes BLE beacons to `covid.log` and tries to print some stats regarding the number of found devices.
+
